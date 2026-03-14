@@ -1,0 +1,27 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #222;
+  color: #ccc;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  opacity: 0.4;
+}
+
+button:focus-visible {
+  outline: 2px solid #5a9a5a;
+  outline-offset: 2px;
+}
