@@ -33,14 +33,26 @@ const TOOL_PREVIEW: Record<Tool, string | null> = {
   eraser: null,
 };
 
+interface BoxSelect {
+  anchor: { x: number; y: number };
+  current: { x: number; y: number };
+}
+
 export default function LevelCanvas({ grid, settings, tool, onGridChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
   const [hoveredCell, setHoveredCell] = useState<{ x: number; y: number } | null>(null);
+  const [boxSelect, setBoxSelect] = useState<BoxSelect | null>(null);
+
   const isPainting = useRef(false);
   const isPanning = useRef(false);
+  const isBoxSelecting = useRef(false);
   const lastPan = useRef({ x: 0, y: 0 });
+
+  // Keep a ref to camera for use inside event handlers without stale closures
+  const cameraRef = useRef(camera);
+  useEffect(() => { cameraRef.current = camera; }, [camera]);
 
   const { gridSize } = settings;
 
@@ -68,14 +80,13 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
     ctx.translate(camera.x, camera.y);
     ctx.scale(camera.zoom, camera.zoom);
 
-    // Determine visible grid range
     const rect = canvas.getBoundingClientRect();
     const startCol = Math.floor(-camera.x / camera.zoom / gridSize) - 1;
     const startRow = Math.floor(-camera.y / camera.zoom / gridSize) - 1;
     const endCol = Math.ceil((rect.width - camera.x) / camera.zoom / gridSize) + 1;
     const endRow = Math.ceil((rect.height - camera.y) / camera.zoom / gridSize) + 1;
 
-    // Draw grid lines
+    // Minor grid lines
     ctx.strokeStyle = '#333333';
     ctx.lineWidth = 1 / camera.zoom;
     for (let col = startCol; col <= endCol; col++) {
@@ -91,7 +102,7 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
       ctx.stroke();
     }
 
-    // Draw major grid lines every 8 cells
+    // Major grid lines every 8 cells
     ctx.strokeStyle = '#444444';
     ctx.lineWidth = 1.5 / camera.zoom;
     for (let col = Math.floor(startCol / 8) * 8; col <= endCol; col += 8) {
@@ -107,7 +118,7 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
       ctx.stroke();
     }
 
-    // Draw origin axes
+    // Origin axes
     ctx.strokeStyle = '#555555';
     ctx.lineWidth = 2 / camera.zoom;
     ctx.beginPath();
@@ -119,15 +130,14 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
     ctx.lineTo(0, endRow * gridSize);
     ctx.stroke();
 
-    // Draw cells
+    // Painted cells
     grid.forEach((cell, key) => {
       const [cx, cy] = key.split(',').map(Number);
-      const isHovered = hoveredCell?.x === cx && hoveredCell?.y === cy;
+      const isHovered = !boxSelect && hoveredCell?.x === cx && hoveredCell?.y === cy;
       const color = isHovered ? CELL_HOVER_COLORS[cell.type] : CELL_COLORS[cell.type];
       ctx.fillStyle = color;
       ctx.fillRect(cx * gridSize + 1, cy * gridSize + 1, gridSize - 2, gridSize - 2);
 
-      // Draw player start icon
       if (cell.type === 'player_start') {
         ctx.fillStyle = '#1a1a1a';
         ctx.font = `${gridSize * 0.5}px monospace`;
@@ -137,8 +147,8 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
       }
     });
 
-    // Draw hover preview
-    if (hoveredCell) {
+    // Single-cell hover preview (only when not box-selecting)
+    if (!boxSelect && hoveredCell) {
       const previewColor = TOOL_PREVIEW[tool];
       if (previewColor && !grid.has(`${hoveredCell.x},${hoveredCell.y}`)) {
         ctx.fillStyle = previewColor + '55';
@@ -160,8 +170,55 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
       }
     }
 
+    // Box-select preview
+    if (boxSelect) {
+      const x0 = Math.min(boxSelect.anchor.x, boxSelect.current.x);
+      const y0 = Math.min(boxSelect.anchor.y, boxSelect.current.y);
+      const x1 = Math.max(boxSelect.anchor.x, boxSelect.current.x);
+      const y1 = Math.max(boxSelect.anchor.y, boxSelect.current.y);
+
+      const previewColor = tool === 'eraser' ? '#ff5555' : (TOOL_PREVIEW[tool] ?? '#ffffff');
+
+      // Fill every cell in the box
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+          if (tool === 'eraser') {
+            ctx.strokeStyle = previewColor + 'aa';
+            ctx.lineWidth = 2 / camera.zoom;
+            ctx.strokeRect(cx * gridSize + 1, cy * gridSize + 1, gridSize - 2, gridSize - 2);
+          } else {
+            ctx.fillStyle = previewColor + '55';
+            ctx.fillRect(cx * gridSize + 1, cy * gridSize + 1, gridSize - 2, gridSize - 2);
+          }
+        }
+      }
+
+      // Bounding box outline
+      const px = x0 * gridSize;
+      const py = y0 * gridSize;
+      const pw = (x1 - x0 + 1) * gridSize;
+      const ph = (y1 - y0 + 1) * gridSize;
+
+      ctx.strokeStyle = previewColor;
+      ctx.lineWidth = 2 / camera.zoom;
+      ctx.setLineDash([4 / camera.zoom, 4 / camera.zoom]);
+      ctx.strokeRect(px, py, pw, ph);
+      ctx.setLineDash([]);
+
+      // Dimension label
+      const w = x1 - x0 + 1;
+      const h = y1 - y0 + 1;
+      const label = `${w} × ${h}`;
+      const fontSize = Math.max(10, 12 / camera.zoom);
+      ctx.font = `${fontSize}px monospace`;
+      ctx.fillStyle = previewColor;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(label, px + 3 / camera.zoom, py - 3 / camera.zoom);
+    }
+
     ctx.restore();
-  }, [camera, grid, hoveredCell, tool, gridSize]);
+  }, [camera, grid, hoveredCell, boxSelect, tool, gridSize]);
 
   useEffect(() => {
     draw();
@@ -186,35 +243,63 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
 
   const paintCell = useCallback(
     (sx: number, sy: number) => {
-      const { x, y } = screenToGrid(sx, sy, camera);
+      const { x, y } = screenToGrid(sx, sy, cameraRef.current);
       const key = `${x},${y}`;
       const newGrid = new Map(grid);
 
       if (tool === 'eraser') {
         newGrid.delete(key);
       } else {
-        const cellType = tool as Cell['type'];
-        newGrid.set(key, { type: cellType });
+        newGrid.set(key, { type: tool as Cell['type'] });
       }
       onGridChange(newGrid);
     },
-    [camera, grid, tool, screenToGrid, onGridChange]
+    [grid, tool, screenToGrid, onGridChange]
+  );
+
+  const commitBox = useCallback(
+    (box: BoxSelect) => {
+      const x0 = Math.min(box.anchor.x, box.current.x);
+      const y0 = Math.min(box.anchor.y, box.current.y);
+      const x1 = Math.max(box.anchor.x, box.current.x);
+      const y1 = Math.max(box.anchor.y, box.current.y);
+
+      const newGrid = new Map(grid);
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+          const key = `${cx},${cy}`;
+          if (tool === 'eraser') {
+            newGrid.delete(key);
+          } else {
+            newGrid.set(key, { type: tool as Cell['type'] });
+          }
+        }
+      }
+      onGridChange(newGrid);
+    },
+    [grid, tool, onGridChange]
   );
 
   const handleMouseDown = useCallback(
     (e: MouseEvent<HTMLCanvasElement>) => {
       if (e.button === 1 || e.button === 2) {
-        // Middle or right click = pan
         isPanning.current = true;
         lastPan.current = { x: e.clientX, y: e.clientY };
         return;
       }
       if (e.button === 0) {
-        isPainting.current = true;
-        paintCell(e.clientX, e.clientY);
+        if (e.shiftKey) {
+          // Start box select
+          isBoxSelecting.current = true;
+          const cell = screenToGrid(e.clientX, e.clientY, cameraRef.current);
+          setBoxSelect({ anchor: cell, current: cell });
+        } else {
+          isPainting.current = true;
+          paintCell(e.clientX, e.clientY);
+        }
       }
     },
-    [paintCell]
+    [paintCell, screenToGrid]
   );
 
   const handleMouseMove = useCallback(
@@ -227,26 +312,47 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
         return;
       }
 
-      const cell = screenToGrid(e.clientX, e.clientY, camera);
+      const cell = screenToGrid(e.clientX, e.clientY, cameraRef.current);
+
+      if (isBoxSelecting.current) {
+        setBoxSelect(prev => prev ? { ...prev, current: cell } : null);
+        return;
+      }
+
       setHoveredCell(cell);
 
       if (isPainting.current) {
         paintCell(e.clientX, e.clientY);
       }
     },
-    [camera, isPainting, paintCell, screenToGrid]
+    [paintCell, screenToGrid]
   );
 
   const handleMouseUp = useCallback(() => {
+    if (isBoxSelecting.current) {
+      isBoxSelecting.current = false;
+      setBoxSelect(prev => {
+        if (prev) commitBox(prev);
+        return null;
+      });
+      return;
+    }
     isPainting.current = false;
     isPanning.current = false;
-  }, []);
+  }, [commitBox]);
 
   const handleMouseLeave = useCallback(() => {
     isPainting.current = false;
     isPanning.current = false;
+    if (isBoxSelecting.current) {
+      isBoxSelecting.current = false;
+      setBoxSelect(prev => {
+        if (prev) commitBox(prev);
+        return null;
+      });
+    }
     setHoveredCell(null);
-  }, []);
+  }, [commitBox]);
 
   const handleWheel = useCallback((e: WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -259,7 +365,6 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
     setCamera(c => {
       const factor = e.deltaY < 0 ? 1.1 : 0.9;
       const newZoom = Math.min(Math.max(c.zoom * factor, 0.1), 8);
-      // Zoom toward mouse pointer
       const newX = mx - (mx - c.x) * (newZoom / c.zoom);
       const newY = my - (my - c.y) * (newZoom / c.zoom);
       return { x: newX, y: newY, zoom: newZoom };
@@ -269,6 +374,12 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
   const handleContextMenu = useCallback((e: MouseEvent) => {
     e.preventDefault();
   }, []);
+
+  const cursor = isBoxSelecting.current
+    ? 'crosshair'
+    : tool === 'eraser'
+    ? 'crosshair'
+    : 'default';
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
@@ -280,7 +391,7 @@ export default function LevelCanvas({ grid, settings, tool, onGridChange }: Prop
         onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
         onContextMenu={handleContextMenu}
-        style={{ display: 'block', cursor: tool === 'eraser' ? 'crosshair' : 'default' }}
+        style={{ display: 'block', cursor }}
       />
     </div>
   );

@@ -112,6 +112,7 @@ export default function Sidebar({
           <kbd style={kbdStyle}>E</kbd><span>Eraser</span>
           <kbd style={kbdStyle}>⌥</kbd><span>Pan (hold)</span>
           <kbd style={kbdStyle}>⊕</kbd><span>Scroll = Zoom</span>
+          <kbd style={kbdStyle}>⇧</kbd><span>Box fill drag</span>
         </div>
       </Section>
 

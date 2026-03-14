@@ -101,6 +101,7 @@ function App() {
         >
           <TopbarHint label="Scroll" description="Zoom" />
           <TopbarHint label="Right/Middle-click drag" description="Pan" />
+          <TopbarHint label="Shift+drag" description="Box fill" />
           <div style={{ flex: 1 }} />
           <div style={{ fontSize: 11, color: '#444' }}>
             {grid.size} cell{grid.size !== 1 ? 's' : ''} painted
